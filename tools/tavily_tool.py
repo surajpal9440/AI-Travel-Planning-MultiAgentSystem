@@ -26,10 +26,13 @@ client = TavilyClient(
 
 
 def tavily_search(query):
-    response = client.search(
-        query=query,
-        max_results=5
-    )
+    try:
+        response = client.search(
+            query=query,
+            max_results=5
+        )
+    except Exception as e:
+        return f"Error performing search: Could not connect to Tavily API ({e}). Search results are currently unavailable."
 
     results = []
 

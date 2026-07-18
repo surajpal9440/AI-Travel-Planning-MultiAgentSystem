@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 from datetime import datetime
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from main import app
 
 st.set_page_config(
@@ -71,6 +71,75 @@ html, body, .stApp {
     color: #94adc8;
     font-size: 1rem;
     max-width: 560px;
+}
+
+/* ── Chat bubbles ── */
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+.chat-bubble {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    max-width: 80%;
+}
+.chat-bubble.user { align-self: flex-end; flex-direction: row-reverse; }
+.chat-bubble.agent { align-self: flex-start; }
+.bubble-avatar {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+.bubble-avatar.user  { background: linear-gradient(135deg, #1a6bbf, #0d4a8a); }
+.bubble-avatar.agent { background: linear-gradient(135deg, #1e3a5c, #0e2240); border: 1px solid #2a5080; }
+.bubble-text {
+    padding: 0.75rem 1rem;
+    border-radius: 14px;
+    font-size: 0.93rem;
+    line-height: 1.6;
+}
+.bubble-text.user  {
+    background: linear-gradient(135deg, #1a3a5c, #0e2240);
+    border: 1px solid #2a5080;
+    color: #cce0f5;
+    border-top-right-radius: 4px;
+}
+.bubble-text.agent {
+    background: #0e1623;
+    border: 1px solid #1e2e44;
+    color: #cce0f5;
+    border-top-left-radius: 4px;
+}
+
+/* ── Planner status badge ── */
+.planner-collecting {
+    background: rgba(255, 165, 0, 0.1);
+    border: 1px solid rgba(255, 165, 0, 0.3);
+    border-radius: 10px;
+    padding: 0.7rem 1rem;
+    margin-bottom: 1rem;
+    color: #ffc947;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.planner-ready {
+    background: rgba(0, 200, 100, 0.1);
+    border: 1px solid rgba(0, 200, 100, 0.3);
+    border-radius: 10px;
+    padding: 0.7rem 1rem;
+    margin-bottom: 1rem;
+    color: #4cdb93;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
 /* ── Input card ── */
@@ -220,6 +289,22 @@ section[data-testid="stSidebar"] {
 }
 .sidebar-title { color: #e0edf8; font-size: 1rem; font-weight: 600; margin: 1rem 0 0.5rem; }
 
+/* ── Collected info pills ── */
+.info-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.5rem;
+}
+.info-pill {
+    background: #0e1a2b;
+    border: 1px solid #2a5080;
+    color: #7ab8f5;
+    font-size: 0.78rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 12px;
+}
+
 /* Hide branding */
 #MainMenu, footer, header { visibility: hidden; }
 
@@ -272,10 +357,10 @@ input[type="text"]::placeholder { color: #3a5570 !important; }
     border-radius: 4px;
 }
 
-/* Metric labels — was #5a7a96 (too dim on dark bg) */
+/* Metric labels */
 .metric-lbl { color: #7aa8cc !important; }
 
-/* Save bar — was #5a8ab0 (slightly dim) */
+/* Save bar */
 .save-bar { color: #8ab8d8 !important; }
 .save-bar code { color: #7ab8f5 !important; background: #0a1520 !important; }
 
@@ -290,7 +375,7 @@ section[data-testid="stSidebar"] label,
 section[data-testid="stSidebar"] .stMarkdown { color: #a0c4e0 !important; }
 section[data-testid="stSidebar"] hr { border-color: #1a2e44 !important; }
 
-/* Download button — light bg → dark text  */
+/* Download button */
 div[data-testid="stDownloadButton"] > button {
     background: #1a3a5c !important;
     color: #e8f4ff !important;
@@ -300,21 +385,71 @@ div[data-testid="stDownloadButton"] > button {
 </style>
 """, unsafe_allow_html=True)
 
+# ── Session state init ─────────────────────────────────────────────────────────
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []          # list of {"role": "user"|"agent", "content": str}
+if "planning_complete" not in st.session_state:
+    st.session_state.planning_complete = False
+if "collected_info" not in st.session_state:
+    st.session_state.collected_info = {}        # source, destination, budget, days
+if "final_result" not in st.session_state:
+    st.session_state.final_result = None
+import random
+import string
+
+if "username" not in st.session_state:
+    st.session_state.username = "aarohi_user"
+if "trip_id" not in st.session_state:
+    st.session_state.trip_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=5))
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("<div class='sidebar-title'>🌍 AI Travel Planner</div>", unsafe_allow_html=True)
     st.markdown("---")
 
-    thread_id = st.text_input("👤 User ID", value="aarohi_user",
-                              help="Your session ID — keeps travel history across queries")
+    new_username = st.text_input("👤 Username", value=st.session_state.username,
+                                 help="Your username for the application")
+    
+    if new_username != st.session_state.username:
+        st.session_state.username = new_username
+        st.session_state.trip_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=5))
+        st.session_state.chat_history = []
+        st.session_state.planning_complete = False
+        st.session_state.collected_info = {}
+        st.session_state.final_result = None
+        st.rerun()
 
     st.markdown("<div class='sidebar-title'>Powered by</div>", unsafe_allow_html=True)
     for tech in ["🔗 LangGraph", "🧠 Groq · LLaMA 3.3 70B", "🐘 PostgreSQL", "🔍 Tavily Search", "✈️ AviationStack"]:
         st.markdown(f"<div class='sidebar-chip'>{tech}</div>", unsafe_allow_html=True)
 
     st.markdown("<div class='sidebar-title'>Agent Pipeline</div>", unsafe_allow_html=True)
-    for step in ["① Flight Agent", "② Hotel Agent", "③ Itinerary Agent", "④ Final Agent"]:
+    for step in ["⓪ Planner Agent ✦ NEW", "① Flight Agent", "② Hotel Agent", "③ Itinerary Agent", "④ Final Agent"]:
         st.markdown(f"<div class='sidebar-chip'>{step}</div>", unsafe_allow_html=True)
+
+    # Show collected info if any
+    if st.session_state.collected_info:
+        st.markdown("<div class='sidebar-title'>📋 Collected Info</div>", unsafe_allow_html=True)
+        info = st.session_state.collected_info
+        pills_html = "<div class='info-pills'>"
+        for key, label in [("source","From"), ("destination","To"), ("budget","Budget"), ("days","Days")]:
+            val = info.get(key)
+            if val:
+                pills_html += f"<div class='info-pill'>✅ {label}: {val}</div>"
+            else:
+                pills_html += f"<div class='info-pill' style='border-color:#5c2020;color:#e07070;'>❓ {label}</div>"
+        pills_html += "</div>"
+        st.markdown(pills_html, unsafe_allow_html=True)
+
+    st.markdown("---")
+    if st.button("🔄 New Trip", use_container_width=True):
+        st.session_state.chat_history = []
+        st.session_state.planning_complete = False
+        st.session_state.collected_info = {}
+        st.session_state.final_result = None
+        # Generate a new hidden trip ID so LangGraph starts a fresh plan for this user
+        st.session_state.trip_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=5))
+        st.rerun()
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -323,9 +458,9 @@ st.markdown("""
          src="https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=1400&q=80"
          alt="airplane above clouds"/>
     <div class="hero-content">
-        <div class="hero-badge">✦ Multi-Agent AI System</div>
+        <div class="hero-badge">✦ Multi-Agent AI System · Human-in-the-Loop</div>
         <div class="hero-title">✈️ AI Travel Booking System</div>
-        <div class="hero-sub">Four specialized agents work together — searching flights, hotels, building an itinerary, and delivering your perfect trip plan.</div>
+        <div class="hero-sub">A smart Planner Agent gathers your trip details first — then five specialized agents build your perfect travel plan.</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -352,144 +487,252 @@ for col, (name, img_url) in zip(cols, DESTINATIONS):
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ── Input ─────────────────────────────────────────────────────────────────────
-st.markdown("<div class='input-label'>🗺️ Describe your trip</div>", unsafe_allow_html=True)
+# ── Chat History Display ───────────────────────────────────────────────────────
+if st.session_state.chat_history:
+    st.markdown("<div class='sec-head'><span>💬 Conversation</span></div>", unsafe_allow_html=True)
 
-QUICK = ["7-day Japan under ₹2L", "Paris trip for 5 days", "Dubai weekend trip", "Bali backpacking 10 days"]
-qcols = st.columns(len(QUICK))
-quick_fill = ""
-for qc, label in zip(qcols, QUICK):
-    with qc:
-        if st.button(label, key=f"q_{label}"):
-            quick_fill = label
+    chat_html = "<div class='chat-container'>"
+    for msg in st.session_state.chat_history:
+        role = msg["role"]
+        content = msg["content"].replace("\n", "<br>")
+        if role == "user":
+            chat_html += f"""
+            <div class='chat-bubble user'>
+                <div class='bubble-avatar user'>👤</div>
+                <div class='bubble-text user'>{content}</div>
+            </div>"""
+        else:
+            chat_html += f"""
+            <div class='chat-bubble agent'>
+                <div class='bubble-avatar agent'>🤖</div>
+                <div class='bubble-text agent'>{content}</div>
+            </div>"""
+    chat_html += "</div>"
+    st.markdown(chat_html, unsafe_allow_html=True)
 
-user_query = st.text_area(
-    "",
-    value=quick_fill,
-    placeholder="e.g. Plan a complete 7-day Japan trip including flights, hotels and sightseeing under ₹2 lakhs",
-    height=100,
-    label_visibility="collapsed",
-)
+# ── Planner Status Banner ──────────────────────────────────────────────────────
+if not st.session_state.planning_complete and st.session_state.chat_history:
+    info = st.session_state.collected_info
+    missing = [f for f in ["source", "destination", "budget", "days"] if not info.get(f)]
+    if missing:
+        st.markdown(
+            f"<div class='planner-collecting'>⏳ <strong>Planner Agent</strong> is collecting required details — still need: "
+            f"{', '.join(missing)}</div>",
+            unsafe_allow_html=True
+        )
+elif st.session_state.planning_complete:
+    st.markdown(
+        "<div class='planner-ready'>✅ <strong>Planner Agent</strong> has all details — full pipeline executed!</div>",
+        unsafe_allow_html=True
+    )
 
-generate = st.button("🚀  Generate My Travel Plan", use_container_width=True)
-
-# ── Agent pipeline ────────────────────────────────────────────────────────────
-AGENT_META = {
-    "flight_agent":    ("✈️", "Flight Agent"),
-    "hotel_agent":     ("🏨", "Hotel Agent"),
-    "itinerary_agent": ("🗓️", "Itinerary Agent"),
-    "final_agent":     ("🧠", "Final Agent"),
-}
-
-if generate:
-    if not user_query.strip():
-        st.warning("Please describe your trip first.")
-    else:
-        config = {"configurable": {"thread_id": thread_id}}
-        collected = {"flight_results": "", "hotel_results": "",
-                     "itinerary": "", "final_response": "", "llm_calls": 0}
-
-        st.markdown("---")
-        st.markdown("<div class='sec-head'><span>🤖 Agent Pipeline — Live</span></div>",
+# ── Input Area ────────────────────────────────────────────────────────────────
+if not st.session_state.planning_complete:
+    # Show quick-start chips only before first message
+    if not st.session_state.chat_history:
+        st.markdown("<div class='input-label'>🗺️ Describe your trip or answer the planner's questions</div>",
                     unsafe_allow_html=True)
+        QUICK = ["7-day Japan under ₹2L", "Paris trip for 5 days", "Dubai weekend trip", "Bali backpacking 10 days"]
+        qcols = st.columns(len(QUICK))
+        quick_fill = st.session_state.get("quick_fill", "")
+        for qc, label in zip(qcols, QUICK):
+            with qc:
+                if st.button(label, key=f"q_{label}"):
+                    st.session_state["quick_fill"] = label
+                    st.rerun()
+        placeholder_text = "e.g. I want to go to Japan from Mumbai for 7 days with ₹2 lakhs budget"
+    else:
+        st.markdown("<div class='input-label'>💬 Reply to the Planner Agent</div>", unsafe_allow_html=True)
+        placeholder_text = "Type your answer here..."
 
-        for chunk in app.stream(
-            {
-                "messages": [HumanMessage(content=user_query)],
-                "user_query": user_query,
-                "flight_results": "",
-                "hotel_results": "",
-                "itinerary": "",
-                "llm_calls": 0,
-            },
-            config=config,
-            stream_mode="updates",
-        ):
-            for node_name, state_update in chunk.items():
-                icon, label = AGENT_META.get(node_name, ("🔧", node_name))
+    user_input = st.text_area(
+        "",
+        value=st.session_state.get("quick_fill", ""),
+        placeholder=placeholder_text,
+        height=90,
+        label_visibility="collapsed",
+        key="user_input_box",
+    )
 
-                with st.status(f"{icon}  {label}", state="complete", expanded=True):
-                    if node_name == "flight_agent":
-                        text = state_update.get("flight_results", "")
-                        collected["flight_results"] = text
-                        st.markdown(text or "_No flight data returned._")
+    send_col, _ = st.columns([1, 3])
+    with send_col:
+        send_btn = st.button(
+            "📤  Send" if st.session_state.chat_history else "🚀  Plan My Trip",
+            use_container_width=True
+        )
 
-                    elif node_name == "hotel_agent":
-                        text = state_update.get("hotel_results", "")
-                        collected["hotel_results"] = text
-                        st.markdown(text or "_No hotel data returned._")
+    if send_btn:
+        if not user_input.strip():
+            st.warning("Please type a message first.")
+        else:
+            user_text = user_input.strip()
+            st.session_state["quick_fill"] = ""
 
-                    elif node_name == "itinerary_agent":
-                        text = state_update.get("itinerary", "")
-                        collected["itinerary"] = text
-                        st.markdown(text or "_No itinerary generated._")
+            # Append to visual chat history
+            st.session_state.chat_history.append({"role": "user", "content": user_text})
 
-                    elif node_name == "final_agent":
-                        msgs = state_update.get("messages", [])
-                        text = msgs[-1].content if msgs else ""
-                        collected["final_response"] = text
-                        st.markdown(text or "_No final response._")
+            # Use the combined username and hidden trip_id as the unique LangGraph thread
+            actual_thread_id = f"{st.session_state.username}_{st.session_state.trip_id}"
+            config = {"configurable": {"thread_id": actual_thread_id}}
 
-                    collected["llm_calls"] = state_update.get("llm_calls", collected["llm_calls"])
+            # Invoke the graph — it will resume from checkpoint with full history
+            with st.spinner("🧠 Planner Agent is thinking..."):
+                result = app.invoke(
+                    {
+                        "messages": [HumanMessage(content=user_text)],
+                        "user_query": "",
+                        "flight_results": "",
+                        "hotel_results": "",
+                        "itinerary": "",
+                        "llm_calls": 0,
+                        "source": None,
+                        "destination": None,
+                        "budget": None,
+                        "days": None,
+                        "ready_to_proceed": False,
+                    },
+                    config=config
+                )
 
-        # Metrics
-        st.markdown(f"""
-        <div class="metric-row">
-            <div class="metric-box"><div class="metric-val">4</div><div class="metric-lbl">Agents Run</div></div>
-            <div class="metric-box"><div class="metric-val">{collected['llm_calls']}</div><div class="metric-lbl">LLM Calls</div></div>
-            <div class="metric-box"><div class="metric-val">✅</div><div class="metric-lbl">Status</div></div>
-        </div>
-        """, unsafe_allow_html=True)
+            # Update collected info from state
+            st.session_state.collected_info = {
+                "source":      result.get("source"),
+                "destination": result.get("destination"),
+                "budget":      result.get("budget"),
+                "days":        result.get("days"),
+            }
 
-        # Final plan card
-        if collected["final_response"]:
-            st.markdown("<div class='sec-head'><span>🧠 Final Travel Plan</span></div>",
-                        unsafe_allow_html=True)
-            st.markdown(f"<div class='final-card'>{collected['final_response']}</div>",
-                        unsafe_allow_html=True)
+            ready = result.get("ready_to_proceed", False)
 
-        # Save
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"travel_plan_{timestamp}.md"
-        save_dir = os.path.join(os.path.dirname(__file__), "travel_plans")
-        os.makedirs(save_dir, exist_ok=True)
+            if not ready:
+                # Planner asked a follow-up question — grab the last AIMessage
+                ai_msgs = [m for m in result["messages"] if isinstance(m, AIMessage)]
+                if ai_msgs:
+                    planner_reply = ai_msgs[-1].content
+                    st.session_state.chat_history.append({"role": "agent", "content": planner_reply})
+                st.rerun()
 
-        file_content = f"""# Travel Plan
+            else:
+                # All fields collected — pipeline ran to completion
+                st.session_state.planning_complete = True
+                st.session_state.final_result = result
+
+                # Add a confirmation message
+                st.session_state.chat_history.append({
+                    "role": "agent",
+                    "content": (
+                        f"✅ All details collected!\n\n"
+                        f"📍 **From:** {result.get('source')}\n"
+                        f"📍 **To:** {result.get('destination')}\n"
+                        f"💰 **Budget:** {result.get('budget')}\n"
+                        f"📅 **Days:** {result.get('days')}\n\n"
+                        "Running the full agent pipeline now... scroll down to see results!"
+                    )
+                })
+                st.rerun()
+
+# ── Full Pipeline Results (shown after planning_complete) ──────────────────────
+if st.session_state.planning_complete and st.session_state.final_result:
+    result = st.session_state.final_result
+
+    AGENT_META = {
+        "planner_agent":   ("🧭", "Planner Agent"),
+        "flight_agent":    ("✈️", "Flight Agent"),
+        "hotel_agent":     ("🏨", "Hotel Agent"),
+        "itinerary_agent": ("🗓️", "Itinerary Agent"),
+        "final_agent":     ("🧠", "Final Agent"),
+    }
+
+    st.markdown("---")
+    st.markdown("<div class='sec-head'><span>🤖 Agent Pipeline Results</span></div>", unsafe_allow_html=True)
+
+    # Flight results
+    with st.status("✈️  Flight Agent", state="complete", expanded=True):
+        st.markdown(result.get("flight_results") or "_No flight data returned._")
+
+    # Hotel results
+    with st.status("🏨  Hotel Agent", state="complete", expanded=True):
+        st.markdown(result.get("hotel_results") or "_No hotel data returned._")
+
+    # Itinerary
+    with st.status("🗓️  Itinerary Agent", state="complete", expanded=True):
+        st.markdown(result.get("itinerary") or "_No itinerary generated._")
+
+    # Final response — grab last AIMessage
+    final_text = ""
+    ai_msgs = [m for m in result["messages"] if isinstance(m, AIMessage)]
+    if ai_msgs:
+        final_text = ai_msgs[-1].content
+
+    with st.status("🧠  Final Agent", state="complete", expanded=True):
+        st.markdown(final_text or "_No final response._")
+
+    # Metrics
+    llm_calls = result.get("llm_calls", 0)
+    st.markdown(f"""
+    <div class="metric-row">
+        <div class="metric-box"><div class="metric-val">5</div><div class="metric-lbl">Agents Run</div></div>
+        <div class="metric-box"><div class="metric-val">{llm_calls}</div><div class="metric-lbl">LLM Calls</div></div>
+        <div class="metric-box"><div class="metric-val">✅</div><div class="metric-lbl">Status</div></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Final plan card
+    if final_text:
+        st.markdown("<div class='sec-head'><span>🧠 Final Travel Plan</span></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='final-card'>{final_text}</div>", unsafe_allow_html=True)
+
+    # Save to file
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"travel_plan_{timestamp}.md"
+    save_dir = os.path.join(os.path.dirname(__file__), "travel_plans")
+    os.makedirs(save_dir, exist_ok=True)
+
+    user_query = result.get("user_query", "")
+    file_content = f"""# Travel Plan
 **Query:** {user_query}
 **Generated:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-**User ID:** {thread_id}
+**User ID:** {st.session_state.username} (Trip ID: {st.session_state.trip_id})
+
+---
+
+## Trip Details
+- **From:** {result.get('source', 'N/A')}
+- **To:** {result.get('destination', 'N/A')}
+- **Budget:** {result.get('budget', 'N/A')}
+- **Days:** {result.get('days', 'N/A')}
 
 ---
 
 ## ✈️ Flight Information
-{collected['flight_results'] or 'N/A'}
+{result.get('flight_results') or 'N/A'}
 
 ---
 
 ## 🏨 Hotel Information
-{collected['hotel_results'] or 'N/A'}
+{result.get('hotel_results') or 'N/A'}
 
 ---
 
 ## 🗓️ Itinerary
-{collected['itinerary'] or 'N/A'}
+{result.get('itinerary') or 'N/A'}
 
 ---
 
 ## 🧠 Final Travel Plan
-{collected['final_response'] or 'N/A'}
+{final_text or 'N/A'}
 
 ---
-*LLM Calls: {collected['llm_calls']}*
+*LLM Calls: {llm_calls}*
 """
-        with open(os.path.join(save_dir, filename), "w", encoding="utf-8") as f:
-            f.write(file_content)
+    with open(os.path.join(save_dir, filename), "w", encoding="utf-8") as f:
+        f.write(file_content)
 
-        dl_col, info_col = st.columns([1, 3])
-        with dl_col:
-            st.download_button("⬇️ Download Plan", data=file_content,
-                               file_name=filename, mime="text/markdown",
-                               use_container_width=True)
-        with info_col:
-            st.markdown(f"<div class='save-bar'>📁 Auto-saved → <code>travel_plans/{filename}</code></div>",
-                        unsafe_allow_html=True)
+    dl_col, info_col = st.columns([1, 3])
+    with dl_col:
+        st.download_button("⬇️ Download Plan", data=file_content,
+                           file_name=filename, mime="text/markdown",
+                           use_container_width=True)
+    with info_col:
+        st.markdown(f"<div class='save-bar'>📁 Auto-saved → <code>travel_plans/{filename}</code></div>",
+                    unsafe_allow_html=True)
